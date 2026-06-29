@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}Imports · Basic Land Tracker{% endblock %}
+{% block content %}
+<section class="stats-row">
+  <div class="stat"><strong>{{ stats.set_count }}</strong><span>sets</span></div>
+  <div class="stat"><strong>{{ stats.card_count }}</strong><span>printings</span></div>
+  <div class="stat"><strong>{{ stats.owned_finishes }}/{{ stats.needed_finishes }}</strong><span>finishes owned</span></div>
+  <div class="stat"><strong>{{ stats.percent }}%</strong><span>complete</span></div>
+</section>
+
+<div class="import-grid">
+  <section class="card-panel">
+    <h2>1. Import Scryfall bulk JSON</h2>
+    <p>Use Scryfall Default Cards bulk data. This app accepts a huge JSON array, newline-delimited JSON, or a <code>.gz</code> file.</p>
+    <form method="post" enctype="multipart/form-data" class="stacked">
+      <input type="hidden" name="action" value="scryfall">
+      <label>
+        Upload JSON file
+        <input type="file" name="scryfall_file" accept=".json,.gz,.txt,.ndjson">
+      </label>
+      <label>
+        Or local path on this computer
+        <input type="text" name="scryfall_path" placeholder="/Users/you/Downloads/default-cards.json">
+      </label>
+      <label class="checkline">
+        <input type="checkbox" name="replace_existing" value="1" checked>
+        Replace existing Scryfall catalogue
+      </label>
+      <label class="checkline">
+        <input type="checkbox" name="paper_only" value="1" checked>
+        Paper cards only
+      </label>
+      <button type="submit">Import Scryfall catalogue</button>
+    </form>
+  </section>
+
+  <section class="card-panel">
+    <h2>2. Import collection CSV</h2>
+    <p>Best result: include a <code>Scryfall ID</code> column. Fallback matching uses name, set code/name, and collector number.</p>
+    <form method="post" enctype="multipart/form-data" class="stacked">
+      <input type="hidden" name="action" value="collection">
+      <label>
+        Source label
+        <input type="text" name="source" value="moxfield">
+      </label>
+      <label>
+        Upload CSV file
+        <input type="file" name="collection_file" accept=".csv,text/csv">
+      </label>
+      <label>
+        Or local path on this computer
+        <input type="text" name="collection_path" placeholder="/Users/you/Downloads/moxfield-collection.csv">
+      </label>
+      <label class="checkline">
+        <input type="checkbox" name="clear_existing" value="1" checked>
+        Clear existing ownership before import
+      </label>
+      <button type="submit">Import ownership</button>
+    </form>
+  </section>
+</div>
+
+<section class="card-panel danger-zone">
+  <h2>Maintenance</h2>
+  <form method="post" action="{{ url_for('clear_owned') }}" onsubmit="return confirm('Clear all ownership data? The Scryfall catalogue will remain.');">
+    <button class="danger" type="submit">Clear ownership only</button>
+  </form>
+</section>
+
+<section class="card-panel">
+  <h2>Recent imports</h2>
+  {% if stats.last_imports %}
+    <table>
+      <thead>
+        <tr><th>When</th><th>Type</th><th>Rows seen</th><th>Imported/matched</th><th>Unmatched</th><th>File</th></tr>
+      </thead>
+      <tbody>
+        {% for row in stats.last_imports %}
+          <tr>
+            <td>{{ row.created_at }}</td>
+            <td>{{ row.import_type }}</td>
+            <td>{{ row.rows_seen }}</td>
+            <td>{{ row.rows_imported or row.rows_matched }}</td>
+            <td>{{ row.rows_unmatched }}</td>
+            <td class="path-cell">{{ row.filename }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No imports yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

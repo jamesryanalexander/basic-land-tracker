@@ -1,0 +1,45 @@
+<section class="set-block {% if set_obj.complete %}complete{% endif %} {% if collapse_sets|default(false) %}collapsed{% endif %}" id="set-{{ set_obj.set_code }}">
+  <div class="set-head">
+    <div class="set-title">
+      <h2><a href="{{ url_for('set_detail', set_code=set_obj.set_code) }}">{{ set_obj.set_name }}</a> <span>{{ set_obj.set_code|upper }}</span></h2>
+      <p>{{ set_obj.released_at or 'Unknown date' }} · {{ set_obj.card_count }} printing(s)</p>
+    </div>
+    <div class="set-head-actions">
+      <div class="set-progress-summary" title="{{ set_obj.owned_finishes }} of {{ set_obj.needed_finishes }} finishes owned">
+        <div class="set-progress-bar" aria-hidden="true"><span style="width: {{ set_obj.percent }}%"></span></div>
+        <strong>{{ set_obj.percent }}%</strong>
+        <span class="sr-only">{{ set_obj.owned_finishes }} of {{ set_obj.needed_finishes }} finishes owned</span>
+      </div>
+      <button class="set-toggle" type="button" data-set-toggle aria-controls="set-body-{{ set_obj.set_code }}" aria-expanded="{% if collapse_sets|default(false) %}false{% else %}true{% endif %}">
+        {% if collapse_sets|default(false) %}Show{% else %}Hide{% endif %}
+      </button>
+    </div>
+  </div>
+  <div class="progress-bar" aria-hidden="true"><span style="width: {{ set_obj.percent }}%"></span></div>
+
+  <div class="set-body" id="set-body-{{ set_obj.set_code }}">
+    {% for treatment in set_obj.treatment_sections %}
+      <div class="treatment-section">
+        <h3>{{ treatment.name }}</h3>
+        <div class="land-grid headings" style="--cols: {{ set_obj.land_order|length }}">
+          {% for land in set_obj.land_order %}
+            <div class="land-heading">{{ land }}</div>
+          {% endfor %}
+        </div>
+        {% for row in treatment.rows %}
+          <div class="land-grid" style="--cols: {{ set_obj.land_order|length }}">
+            {% for card in row %}
+              <div class="land-cell">
+                {% if card %}
+                  {% include '_card_tile.html' %}
+                {% else %}
+                  <div class="empty-cell"></div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endfor %}
+  </div>
+</section>

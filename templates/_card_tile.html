@@ -1,0 +1,26 @@
+{% set owned_count = card.owned_finishes|length %}
+<article class="card-tile {% if owned_count == 0 %}unowned{% else %}owned{% endif %}" id="card-{{ card.scryfall_id }}">
+  <a href="{{ card.scryfall_uri }}" target="_blank" rel="noopener">
+    {% if card.image_normal %}
+      <img src="{{ card.image_normal }}" alt="{{ card.name }} {{ card.set_code|upper }} #{{ card.collector_number }}">
+    {% else %}
+      <div class="missing-image">No image</div>
+    {% endif %}
+  </a>
+  <div class="card-meta">
+    <strong>{{ card.name }}</strong>
+    <span>{{ card.set_code|upper }} #{{ card.collector_number }}</span>
+    {% if card.artist %}<span>{{ card.artist }}</span>{% endif %}
+  </div>
+  <div class="finish-row" aria-label="Finish ownership toggles">
+    {% for finish in card.available_finishes %}
+      <form method="post" action="{{ url_for('toggle_owned', scryfall_id=card.scryfall_id, finish=finish) }}">
+        <input type="hidden" name="return_to" value="{{ request.full_path }}#card-{{ card.scryfall_id }}">
+        <button class="finish-pill {% if finish in card.owned_finishes %}finish-owned{% else %}finish-missing{% endif %}"
+                title="Toggle {{ finish }} ownership">
+          {% if finish == 'nonfoil' %}NF{% elif finish == 'foil' %}F{% else %}E{% endif %}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+</article>

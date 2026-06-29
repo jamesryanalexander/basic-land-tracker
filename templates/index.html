@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Basic Land Grid{% endblock %}
+{% block content %}
+<section class="stats-row">
+  <div class="stat"><strong>{{ stats.set_count }}</strong><span>sets</span></div>
+  <div class="stat"><strong>{{ stats.card_count }}</strong><span>printings</span></div>
+  <div class="stat"><strong>{{ stats.owned_finishes }}/{{ stats.needed_finishes }}</strong><span>finishes owned</span></div>
+  <div class="stat"><strong>{{ stats.percent }}%</strong><span>complete</span></div>
+</section>
+
+<section class="toolbar card-panel">
+  <form method="get" class="filters">
+    <label>
+      Search set
+      <input type="search" name="q" value="{{ search }}" placeholder="bloomburrow, blb, dominaria...">
+    </label>
+    <label class="checkline">
+      <input type="checkbox" name="extras" value="1" {% if include_extras %}checked{% endif %}>
+      Include Wastes and snow basics
+    </label>
+    <label class="checkline">
+      <input type="checkbox" name="hide_complete" value="1" {% if hide_complete %}checked{% endif %}>
+      Hide complete sets
+    </label>
+    <label>
+      View
+      <select name="view">
+        <option value="grid" {% if view == 'grid' %}selected{% endif %}>Full grid</option>
+        <option value="sets" {% if view == 'sets' %}selected{% endif %}>Set summary</option>
+      </select>
+    </label>
+    <button type="submit">Apply</button>
+    <a class="button ghost" href="{{ url_for('index') }}">Reset</a>
+  </form>
+</section>
+
+{% if stats.card_count == 0 %}
+  <section class="empty-state">
+    <h2>No Scryfall catalogue imported yet</h2>
+    <p>Start by importing the Scryfall bulk JSON. After that, import your Moxfield collection CSV.</p>
+    <a class="button" href="{{ url_for('imports') }}">Go to imports</a>
+  </section>
+{% elif view == 'sets' %}
+  <section class="set-list card-panel">
+    <h2>Sets</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Set</th>
+          <th>Code</th>
+          <th>Released</th>
+          <th>Printings</th>
+          <th>Completion</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in summaries %}
+          <tr>
+            <td><a href="{{ url_for('set_detail', set_code=s.set_code) }}">{{ s.set_name }}</a></td>
+            <td>{{ s.set_code|upper }}</td>
+            <td>{{ s.released_at }}</td>
+            <td>{{ s.card_count }}</td>
+            <td class="summary-progress-cell">
+              <div class="summary-progress" title="{{ s.owned_finishes }} of {{ s.needed_finishes }} finishes owned">
+                <div class="summary-progress-bar" aria-hidden="true">
+                  <span style="width: {{ s.percent }}%"></span>
+                </div>
+                <span class="summary-progress-label">{{ s.percent }}%</span>
+                <span class="sr-only">{{ s.owned_finishes }} of {{ s.needed_finishes }} finishes owned</span>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% else %}
+  {% set collapse_sets = true %}
+  <div class="grid-stack">
+    {% for set_obj in sets %}
+      {% include '_set_grid.html' %}
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
