@@ -2,6 +2,8 @@
 
 A small local Flask app for visually tracking which Magic: The Gathering basic lands you own from each set.
 
+> **Disclosure:** This is a personal desktop/web app intended for tracking my own basic land collection. It was built with the help of Claude Code; all AI-generated components have been manually reviewed and tested to ensure stability and security.
+
 It uses:
 
 - **Scryfall bulk JSON** as the card/image catalogue.
@@ -107,6 +109,24 @@ The importer tries to understand common column names, including:
 - `Finish`, `Foil`, `Printing`, `Variant`
 
 If a row cannot be matched to a Scryfall card in the local catalogue, it is skipped and counted as unmatched.
+
+## Add lands manually
+
+Go to:
+
+```text
+/collection
+```
+
+Enter a Scryfall set code (e.g. `znr`), a collector number, and a finish, then click
+`Check card on Scryfall` to fetch the card live from the Scryfall API and preview its
+image before adding it. Submitting the form looks the card up again server-side, adds
+it to the local catalogue (using its Scryfall ID), and records it as owned.
+
+The same page lists your full manually tracked collection — name, set, collector
+number, Scryfall ID, a small image linking to the card on Scryfall, and a delete
+button for each entry. This talks to the live Scryfall API, so it needs an internet
+connection (unlike the rest of the app).
 
 ## Manual cleanup
 
