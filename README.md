@@ -10,7 +10,7 @@ It uses:
 - **A Moxfield-style CSV export** as the ownership overlay.
 - **SQLite** for local storage.
 - **Manual finish toggles** in the UI for cleanup and edge cases.
-
+ 
 ## What it tracks
 
 By default the grid shows the five normal basic land names:
@@ -137,6 +137,12 @@ This is useful when:
 - a collection export is missing finish data
 - a card matched but the finish was wrong
 - you want to track a few cards manually before importing a full collection
+
+## Export Collection
+
+You can export a CSV of the ownership information on either the Collection page or the Import page.
+
+This is designed to let you move servers/systems easily and is comptabile with the import function.
 
 ## Notes and limitations
 
