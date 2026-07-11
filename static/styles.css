@@ -438,6 +438,17 @@ input[type="file"] {
   font-weight: 800;
 }
 
+.lang-badge {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  vertical-align: middle;
+  color: var(--bg);
+  background: var(--warning);
+}
+
 .finish-owned {
   border-color: rgba(34, 197, 94, 0.75);
   background: rgba(34, 197, 94, 0.16);

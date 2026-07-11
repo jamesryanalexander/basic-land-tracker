@@ -110,7 +110,8 @@ def init_db() -> None:
                 rarity TEXT,
                 artist TEXT,
                 treatment TEXT NOT NULL DEFAULT 'Regular',
-                imported_at TEXT NOT NULL
+                imported_at TEXT NOT NULL,
+                origin TEXT NOT NULL DEFAULT 'bulk'
             );
 
             CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_code, collector_sort, collector_number);
@@ -144,6 +145,11 @@ def init_db() -> None:
             """
         )
         db.commit()
+
+        existing_cols = {row[1] for row in db.execute("PRAGMA table_info(cards)").fetchall()}
+        if "origin" not in existing_cols:
+            db.execute("ALTER TABLE cards ADD COLUMN origin TEXT NOT NULL DEFAULT 'bulk'")
+            db.commit()
 
 
 @app.cli.command("init-db")
@@ -276,8 +282,8 @@ def get_image_uris(card: Dict[str, Any]) -> Tuple[str, str]:
     return image_uris.get("small", ""), image_uris.get("normal", "")
 
 
-def is_basic_land_card(card: Dict[str, Any], include_extras: bool = True) -> bool:
-    if card.get("lang") != "en":
+def is_basic_land_card(card: Dict[str, Any], include_extras: bool = True, require_lang_en: bool = True) -> bool:
+    if require_lang_en and card.get("lang") != "en":
         return False
     if card.get("layout") in {"art_series", "token", "emblem", "planar", "scheme", "vanguard"}:
         return False
@@ -371,17 +377,22 @@ def log_import(
 # Importers
 # -----------------------------------------------------------------------------
 
+# `origin` distinguishes rows brought in by the English-only Scryfall bulk import
+# ('bulk') from ones added individually as non-English/special-case printings
+# ('special'). ON CONFLICT overwriting origin unconditionally is safe only because
+# scryfall_id is unique per printing+language, so a bulk run can never touch a
+# special row's scryfall_id.
 CARD_UPSERT_SQL = """
     INSERT INTO cards (
         scryfall_id, oracle_id, name, land_type, set_code, set_name, set_type, released_at,
         collector_number, collector_sort, lang, layout, image_small, image_normal, scryfall_uri,
         finishes_json, nonfoil, foil, etched, full_art, promo, variation, digital,
-        border_color, frame, rarity, artist, treatment, imported_at
+        border_color, frame, rarity, artist, treatment, imported_at, origin
     ) VALUES (
         :scryfall_id, :oracle_id, :name, :land_type, :set_code, :set_name, :set_type, :released_at,
         :collector_number, :collector_sort, :lang, :layout, :image_small, :image_normal, :scryfall_uri,
         :finishes_json, :nonfoil, :foil, :etched, :full_art, :promo, :variation, :digital,
-        :border_color, :frame, :rarity, :artist, :treatment, :imported_at
+        :border_color, :frame, :rarity, :artist, :treatment, :imported_at, :origin
     )
     ON CONFLICT(scryfall_id) DO UPDATE SET
         oracle_id=excluded.oracle_id,
@@ -411,11 +422,12 @@ CARD_UPSERT_SQL = """
         rarity=excluded.rarity,
         artist=excluded.artist,
         treatment=excluded.treatment,
-        imported_at=excluded.imported_at
+        imported_at=excluded.imported_at,
+        origin=excluded.origin
 """
 
 
-def build_card_row(card: Dict[str, Any], imported_at: str) -> Optional[Dict[str, Any]]:
+def build_card_row(card: Dict[str, Any], imported_at: str, origin: str = "bulk") -> Optional[Dict[str, Any]]:
     """Turn a raw Scryfall card object into a `cards` table row, or None if it has no finishes."""
     small, normal = get_image_uris(card)
     finishes = [f for f in (card.get("finishes") or []) if f in FINISH_ORDER]
@@ -452,6 +464,7 @@ def build_card_row(card: Dict[str, Any], imported_at: str) -> Optional[Dict[str,
         "artist": card.get("artist"),
         "treatment": derive_treatment(card),
         "imported_at": imported_at,
+        "origin": origin,
     }
 
 
@@ -491,10 +504,11 @@ def import_scryfall_bulk(path: Path, replace_existing: bool = True, paper_only: 
 
     if replace_existing:
         db.execute(
-            "DELETE FROM owned WHERE scryfall_id IN (SELECT scryfall_id FROM cards WHERE imported_at != ?)",
+            "DELETE FROM owned WHERE scryfall_id IN "
+            "(SELECT scryfall_id FROM cards WHERE imported_at != ? AND origin = 'bulk')",
             (timestamp,),
         )
-        db.execute("DELETE FROM cards WHERE imported_at != ?", (timestamp,))
+        db.execute("DELETE FROM cards WHERE imported_at != ? AND origin = 'bulk'", (timestamp,))
         db.commit()
 
     log_import("scryfall", str(path), rows_seen, rows_imported, message="Scryfall bulk import completed")
@@ -1014,12 +1028,14 @@ def api_card_lookup():
     except ScryfallError as exc:
         return jsonify(ok=False, error=str(exc)), 502
 
-    if not is_basic_land_card(card, include_extras=True):
+    strict_ok = is_basic_land_card(card, include_extras=True, require_lang_en=True)
+    special_ok = (not strict_ok) and is_basic_land_card(card, include_extras=True, require_lang_en=False)
+    if not strict_ok and not special_ok:
         return (
             jsonify(
                 ok=False,
                 error=f"{card.get('name', 'That card')} isn't a supported basic land "
-                "(this tracker only handles English basic lands, Wastes, and snow basics).",
+                "(must be a basic land, Wastes, or a snow basic).",
             ),
             422,
         )
@@ -1039,6 +1055,9 @@ def api_card_lookup():
         image_small=small,
         scryfall_uri=card.get("scryfall_uri"),
         finishes=finishes,
+        special_case=not strict_ok,
+        lang=card.get("lang"),
+        printed_name=card.get("printed_name") or card.get("name"),
     )
 
 
@@ -1059,19 +1078,31 @@ def collection_add():
         flash("Quantity must be at least 1.", "error")
         return redirect(url_for("collection"))
 
+    client_confirmed_special = request.form.get("special_case") == "1"
+
     try:
         card = fetch_scryfall_card(set_code, collector_number)
     except ScryfallError as exc:
         flash(str(exc), "error")
         return redirect(url_for("collection"))
 
-    if not is_basic_land_card(card, include_extras=True):
-        flash(
-            f"{card.get('name', 'That card')} isn't a supported basic land "
-            "(this tracker only handles English basic lands, Wastes, and snow basics).",
-            "error",
-        )
-        return redirect(url_for("collection"))
+    # The server, not the client, decides whether a card actually needs the
+    # special-case flag: a card that already passes the strict English check is
+    # always filed as 'bulk', regardless of what the form submitted.
+    if is_basic_land_card(card, include_extras=True, require_lang_en=True):
+        origin = "bulk"
+    else:
+        if not is_basic_land_card(card, include_extras=True, require_lang_en=False):
+            flash(f"{card.get('name', 'That card')} isn't a supported basic land.", "error")
+            return redirect(url_for("collection"))
+        if not client_confirmed_special:
+            flash(
+                f"{card.get('name')} is a non-English/special printing (lang: {card.get('lang')}). "
+                "Check the box to confirm you want to add it as a special case.",
+                "error",
+            )
+            return redirect(url_for("collection"))
+        origin = "special"
 
     finishes = [f for f in (card.get("finishes") or []) if f in FINISH_ORDER]
     if finish not in finishes:
@@ -1083,22 +1114,31 @@ def collection_add():
 
     timestamp = now_iso()
     db = get_db()
-    row = build_card_row(card, timestamp)
+    row = build_card_row(card, timestamp, origin=origin)
     db.execute(CARD_UPSERT_SQL, row)
+    owned_source = "special-entry" if origin == "special" else "manual-entry"
     db.execute(
         """
         INSERT INTO owned (scryfall_id, finish, quantity, source, updated_at)
-        VALUES (:scryfall_id, :finish, :quantity, 'manual-entry', :updated_at)
+        VALUES (:scryfall_id, :finish, :quantity, :source, :updated_at)
         ON CONFLICT(scryfall_id, finish) DO UPDATE SET
             quantity = owned.quantity + excluded.quantity,
             source = excluded.source,
             updated_at = excluded.updated_at
         """,
-        {"scryfall_id": card.get("id"), "finish": finish, "quantity": quantity, "updated_at": timestamp},
+        {
+            "scryfall_id": card.get("id"),
+            "finish": finish,
+            "quantity": quantity,
+            "source": owned_source,
+            "updated_at": timestamp,
+        },
     )
     db.commit()
+    suffix = " (special printing)" if origin == "special" else ""
     flash(
-        f"Added {quantity} × {card.get('name')} ({set_code.upper()} #{collector_number}, {finish}) to your collection.",
+        f"Added {quantity} × {card.get('name')} ({set_code.upper()} #{collector_number}, {finish}){suffix} "
+        "to your collection.",
         "success",
     )
     return redirect(url_for("collection"))

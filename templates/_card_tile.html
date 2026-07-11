@@ -8,7 +8,7 @@
     {% endif %}
   </a>
   <div class="card-meta">
-    <strong>{{ card.name }}</strong>
+    <strong>{{ card.name }}{% if card.lang and card.lang != 'en' %} <span class="lang-badge">{{ card.lang|upper }}</span>{% endif %}</strong>
     <span>{{ card.set_code|upper }} #{{ card.collector_number }}</span>
     {% if card.artist %}<span>{{ card.artist }}</span>{% endif %}
   </div>

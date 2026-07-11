@@ -42,6 +42,9 @@
     const previewName = document.getElementById('lookup-preview-name');
     const previewSet = document.getElementById('lookup-preview-set');
     const previewId = document.getElementById('lookup-preview-id');
+    const specialLine = document.getElementById('special-case-line');
+    const specialCheckbox = document.getElementById('special_case');
+    const specialLang = document.getElementById('special-case-lang');
 
     function setStatus(message, kind) {
       statusEl.textContent = message || '';
@@ -50,6 +53,8 @@
 
     function resetPreview() {
       preview.hidden = true;
+      specialLine.hidden = true;
+      specialCheckbox.checked = false;
       setStatus('', '');
     }
 
@@ -102,7 +107,19 @@
         previewId.textContent = data.scryfall_id || '';
         restrictFinishes(data.finishes && data.finishes.length ? data.finishes : ['nonfoil', 'foil', 'etched']);
         preview.hidden = false;
-        setStatus('Card found — confirm this looks right, then add it.', 'success');
+        specialCheckbox.checked = false;
+        if (data.special_case) {
+          specialLang.textContent = data.lang || 'non-English';
+          specialLine.hidden = false;
+          setStatus(
+            `Special printing found (${data.printed_name || data.name}, lang: ${data.lang}). ` +
+              'Confirm below to add it.',
+            'success'
+          );
+        } else {
+          specialLine.hidden = true;
+          setStatus('Card found — confirm this looks right, then add it.', 'success');
+        }
       } catch (err) {
         setStatus('Lookup failed. Check your connection and try again.', 'error');
       } finally {
