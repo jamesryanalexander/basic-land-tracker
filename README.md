@@ -31,6 +31,8 @@ Each printing appears once, with finish badges:
 
 If you own any finish for that printing, the card image appears in colour. If you own none, it appears black-and-white.
 
+By default the local database includes English language cards only and will only import those. If you wish to add a non-english card (for example a Japanese card or a special edition card in a fantasy langauge such as Phyrexian) you will need to add the card manually using the special case feature on the `/Collection` page. See the [add lands manually section](#add-lands-manually) for more.
+ 
 ## Setup
 
 ```bash
@@ -127,6 +129,8 @@ The same page lists your full manually tracked collection — name, set, collect
 number, Scryfall ID, a small image linking to the card on Scryfall, and a delete
 button for each entry. The `check card` button talks to the live Scryfall API, so it needs an internet
 connection (unlike the rest of the app).
+
+If you wish to add a special case card (a non-english/special printing basic land not in the main database) go through the same process to start. After you `check card` it will give a warning (in the preview window) that it found a special case card thatis not in the database. You can then check the override box and press `add to collection` to add a special case to the database with the needed information from the Scryfall API. This special case will not be overriden if you reimport a new version of the card database.
 
 ## Manual cleanup
 
