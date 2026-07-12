@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Log in · Basic Land Tracker{% endblock %}
+{% block content %}
+<section class="card-panel add-land-panel">
+  <h2>Log in</h2>
+  <form method="post" class="add-land-form">
+    <div class="add-land-fields">
+      <label>
+        Username
+        <input type="text" name="username" autocomplete="username" required autofocus>
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+    </div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="add-land-actions">
+      <button type="submit">Log in</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -148,6 +148,51 @@ You can export a CSV of the ownership information on either the Collection page 
 
 This is designed to let you move servers/systems easily and is comptabile with the import function.
 
+## Remote deployment (Docker + Caddy)
+
+This runs the app behind Caddy for automatic HTTPS, with single-user login protecting every route.
+
+### 1. Prerequisites
+
+- A VPS (e.g. a DigitalOcean droplet) with Docker and the Docker Compose plugin installed.
+- A domain (or subdomain) with an A record pointing at the VPS's IP.
+- Ports 80 and 443 open on the VPS firewall.
+
+### 2. Generate secrets
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"   # -> SECRET_KEY
+```
+
+Password hash (after `docker compose build`, or from a local venv with the same requirements installed):
+
+```bash
+docker compose run --rm app flask --app app hash-password 'your-strong-password'
+```
+
+### 3. Configure `.env`
+
+Copy `.env.example` to `.env` and fill in `DOMAIN`, `ACME_EMAIL`, `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, and `SECRET_KEY`. `.env` is gitignored — never commit it.
+
+### 4. Build and start
+
+```bash
+docker compose up -d --build
+```
+
+Caddy provisions a Let's Encrypt certificate for `DOMAIN` automatically on first request. Visit `https://yourdomain.example.com` and log in.
+
+### 5. Data persistence
+
+The SQLite database and uploaded import files live on the host at `./data/`, bind-mounted into the app container — they persist across `docker compose down`/`up`/rebuilds. Back this directory up externally (e.g. periodic `rsync`/`scp` off the VPS); this is not automated by the compose setup.
+
+### 6. Updating
+
+```bash
+git pull
+docker compose up -d --build
+```
+
 ## Notes and limitations
 
 - This app does not use live APIs during normal use.

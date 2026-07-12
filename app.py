@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import click
 import csv
 import datetime as dt
 import gzip
@@ -8,6 +9,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from collections import defaultdict, OrderedDict
 from contextlib import closing
 from pathlib import Path
@@ -27,8 +29,10 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,8 +53,35 @@ ALL_LANDS = LAND_ORDER + EXTRA_LANDS
 FINISH_ORDER = ["nonfoil", "foil", "etched"]
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "local-dev-basic-land-tracker")
+
+# Auth is opt-in: unset in local dev (zero config needed), required together once
+# deployed remotely. This is also what decides how strict SECRET_KEY/cookie
+# handling need to be below.
+AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
+AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH")
+AUTH_ENABLED = bool(AUTH_USERNAME or AUTH_PASSWORD_HASH)
+if AUTH_ENABLED and not (AUTH_USERNAME and AUTH_PASSWORD_HASH):
+    raise RuntimeError(
+        "Set both AUTH_USERNAME and AUTH_PASSWORD_HASH together (or neither, for local dev)."
+    )
+
+if AUTH_ENABLED:
+    _secret_key = os.environ.get("SECRET_KEY")
+    if not _secret_key:
+        raise RuntimeError(
+            "SECRET_KEY must be set explicitly when AUTH_USERNAME/AUTH_PASSWORD_HASH are configured."
+        )
+    app.config["SECRET_KEY"] = _secret_key
+else:
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "local-dev-basic-land-tracker")
+
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "2048")) * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get(
+    "SESSION_COOKIE_SECURE", "1" if AUTH_ENABLED else "0"
+) == "1"
+app.config["PERMANENT_SESSION_LIFETIME"] = dt.timedelta(days=30)
 
 
 # -----------------------------------------------------------------------------
@@ -63,6 +94,7 @@ def get_db() -> sqlite3.Connection:
         db = sqlite3.connect(DB_PATH)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
+        db.execute("PRAGMA busy_timeout = 5000")
         g.db = db
     return g.db
 
@@ -156,6 +188,13 @@ def init_db() -> None:
 def init_db_command() -> None:
     init_db()
     print(f"Initialized {DB_PATH}")
+
+
+@app.cli.command("hash-password")
+@click.argument("password")
+def hash_password_command(password: str) -> None:
+    """Print a password hash suitable for the AUTH_PASSWORD_HASH env var."""
+    print(generate_password_hash(password))
 
 
 # -----------------------------------------------------------------------------
@@ -864,9 +903,48 @@ def global_stats() -> Dict[str, Any]:
 # Routes
 # -----------------------------------------------------------------------------
 
+PUBLIC_ENDPOINTS = {"login", "static"}
+
+
+@app.before_request
+def require_login() -> Optional[Response]:
+    if not AUTH_ENABLED:
+        return None
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+    if session.get("logged_in"):
+        return None
+    return redirect(url_for("login", next=request.full_path))
+
+
 @app.before_request
 def ensure_db() -> None:
     init_db()
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not AUTH_ENABLED:
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        if username == AUTH_USERNAME and check_password_hash(AUTH_PASSWORD_HASH, password):
+            session.clear()
+            session["logged_in"] = True
+            session.permanent = True
+            next_url = request.form.get("next") or url_for("index")
+            return redirect(next_url)
+        time.sleep(1)  # crude brute-force slowdown
+        flash("Invalid username or password.", "error")
+    return render_template("login.html", next=request.args.get("next", ""))
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    flash("Logged out.", "success")
+    return redirect(url_for("login"))
 
 
 @app.route("/")
