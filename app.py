@@ -52,7 +52,14 @@ EXTRA_LANDS = [
 ALL_LANDS = LAND_ORDER + EXTRA_LANDS
 FINISH_ORDER = ["nonfoil", "foil", "etched"]
 
+# Sets where one Scryfall set_code covers many unrelated products (e.g. Secret
+# Lair Drop bundles dozens of distinct themed releases under "sld"). Only these
+# sets get split into per-drop sub-groups in build_set_grid(); every other set
+# renders exactly as it always has.
+SET_CODES_WITH_DROPS = {"sld", "slp"}
+
 app = Flask(__name__)
+app.jinja_env.globals["SET_CODES_WITH_DROPS"] = SET_CODES_WITH_DROPS
 
 # Auth is opt-in: unset in local dev (zero config needed), required together once
 # deployed remotely. This is also what decides how strict SECRET_KEY/cookie
@@ -182,6 +189,12 @@ def init_db() -> None:
         if "origin" not in existing_cols:
             db.execute("ALTER TABLE cards ADD COLUMN origin TEXT NOT NULL DEFAULT 'bulk'")
             db.commit()
+        if "group_key" not in existing_cols:
+            # Nullable: NULL means "use auto-detected drop grouping". Deliberately
+            # excluded from CARD_UPSERT_SQL so bulk Scryfall reimports never touch
+            # it -- only the /groups/<set_code> routes write to this column.
+            db.execute("ALTER TABLE cards ADD COLUMN group_key TEXT")
+            db.commit()
 
 
 @app.cli.command("init-db")
@@ -278,6 +291,24 @@ def derive_treatment(card: Dict[str, Any]) -> str:
     if card.get("border_color") == "borderless":
         return "Borderless"
     return "Regular"
+
+
+def resolve_drop_group(card: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """Return (internal_key, display_label) for a card's drop-group.
+
+    display_label is None for sets outside SET_CODES_WITH_DROPS, which the
+    template uses to skip rendering any drop-group header -- ordinary sets get
+    no extra markup. The override:/auto: prefixes on the internal key keep a
+    manually-typed label from ever colliding with an auto-derived one.
+    """
+    if card["set_code"] not in SET_CODES_WITH_DROPS:
+        return ("_single", None)
+    override = (card.get("group_key") or "").strip()
+    if override:
+        return (f"override:{override}", override)
+    artist = card.get("artist") or "Unknown artist"
+    released = card.get("released_at") or "Unknown date"
+    return (f"auto:{released}|{artist}", f"{artist} · {released}")
 
 
 class ScryfallError(RuntimeError):
@@ -816,7 +847,7 @@ def build_set_grid(
         SELECT c.*
         FROM cards c
         {where_sql}
-        ORDER BY c.released_at DESC, c.set_name ASC, c.treatment ASC,
+        ORDER BY c.released_at DESC, c.artist ASC, c.set_name ASC, c.treatment ASC,
                  c.collector_sort ASC, c.collector_number ASC
         """,
         params,
@@ -841,7 +872,7 @@ def build_set_grid(
                 "set_code": card["set_code"],
                 "set_name": card["set_name"],
                 "released_at": card["released_at"],
-                "treatments": OrderedDict(),
+                "drop_groups": OrderedDict(),
                 "needed_finishes": 0,
                 "owned_finishes": 0,
                 "card_count": 0,
@@ -852,11 +883,16 @@ def build_set_grid(
         set_obj["needed_finishes"] += len(card["available_finishes"])
         set_obj["owned_finishes"] += len(card["owned_finishes"])
 
+        group_key, group_label = resolve_drop_group(card)
+        if group_key not in set_obj["drop_groups"]:
+            set_obj["drop_groups"][group_key] = {"label": group_label, "treatments": OrderedDict()}
+        group_obj = set_obj["drop_groups"][group_key]
+
         treatment = card["treatment"] or "Regular"
-        if treatment not in set_obj["treatments"]:
-            set_obj["treatments"][treatment] = {land: [] for land in land_order}
-        if card["land_type"] in set_obj["treatments"][treatment]:
-            set_obj["treatments"][treatment][card["land_type"]].append(card)
+        if treatment not in group_obj["treatments"]:
+            group_obj["treatments"][treatment] = {land: [] for land in land_order}
+        if card["land_type"] in group_obj["treatments"][treatment]:
+            group_obj["treatments"][treatment][card["land_type"]].append(card)
 
     sets = []
     for set_obj in set_map.values():
@@ -868,14 +904,21 @@ def build_set_grid(
             continue
 
         # Turn treatment columns into row matrices for template simplicity.
-        treatment_sections = []
-        for treatment, by_land in set_obj["treatments"].items():
-            max_len = max((len(cards) for cards in by_land.values()), default=0)
-            rows = []
-            for i in range(max_len):
-                rows.append([by_land[land][i] if i < len(by_land[land]) else None for land in land_order])
-            treatment_sections.append({"name": treatment, "rows": rows})
-        set_obj["treatment_sections"] = treatment_sections
+        # Rows are built within a single drop-group's treatment bucket, so cards
+        # from unrelated drops (e.g. different Secret Lair products that happen
+        # to share a treatment label) can never be zipped into the same row.
+        drop_group_sections = []
+        for group in set_obj["drop_groups"].values():
+            treatment_sections = []
+            for treatment, by_land in group["treatments"].items():
+                max_len = max((len(cards) for cards in by_land.values()), default=0)
+                rows = []
+                for i in range(max_len):
+                    rows.append([by_land[land][i] if i < len(by_land[land]) else None for land in land_order])
+                treatment_sections.append({"name": treatment, "rows": rows})
+            drop_group_sections.append({"label": group["label"], "treatment_sections": treatment_sections})
+        set_obj["drop_group_sections"] = drop_group_sections
+        del set_obj["drop_groups"]
         sets.append(set_obj)
     return sets
 
@@ -1266,6 +1309,54 @@ def toggle_owned(scryfall_id: str, finish: str):
         )
     db.commit()
     return redirect(request.form.get("return_to") or request.referrer or url_for("index"))
+
+
+@app.get("/groups/<set_code>")
+def set_groups(set_code: str):
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT scryfall_id, name, land_type, artist, released_at, collector_number, group_key
+        FROM cards
+        WHERE LOWER(set_code) = LOWER(?)
+        ORDER BY released_at ASC, artist ASC, collector_sort ASC, collector_number ASC
+        """,
+        (set_code,),
+    ).fetchall()
+    if not rows:
+        flash(f"No cards found for set code '{set_code}'.", "warning")
+        return redirect(url_for("index"))
+
+    cards = []
+    for row in rows:
+        card = dict(row)
+        card["auto_label"] = "{} · {}".format(
+            card["artist"] or "Unknown artist", card["released_at"] or "Unknown date"
+        )
+        cards.append(card)
+
+    return render_template(
+        "groups.html",
+        set_code=set_code,
+        cards=cards,
+        is_grouped_set=set_code.lower() in SET_CODES_WITH_DROPS,
+    )
+
+
+@app.post("/groups/<set_code>/update")
+def set_groups_update(set_code: str):
+    db = get_db()
+    updated = 0
+    for scryfall_id in request.form.getlist("scryfall_id"):
+        raw = request.form.get(f"group_key__{scryfall_id}", "").strip()
+        db.execute(
+            "UPDATE cards SET group_key = ? WHERE scryfall_id = ?",
+            (raw or None, scryfall_id),
+        )
+        updated += 1
+    db.commit()
+    flash(f"Updated drop-group labels for {updated} card(s).", "success")
+    return redirect(url_for("set_groups", set_code=set_code))
 
 
 @app.post("/clear-owned")

@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Drop groups · {{ set_code|upper }} · Basic Land Tracker{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('set_detail', set_code=set_code) }}">&larr; Back to {{ set_code|upper }}</a></p>
+
+<section class="card-panel groups-panel">
+  <h2>Drop groups for {{ set_code|upper }}</h2>
+  {% if not is_grouped_set %}
+    <div class="flash warning">
+      This set code isn't in the auto-grouped list, so these overrides won't change how it renders.
+    </div>
+  {% endif %}
+  <p>
+    Leave a field blank to use the auto-detected label (artist &middot; release date). Give two or more
+    cards the same override text to merge them into one drop-group; give a card unique text to split it
+    out of an auto-detected cluster.
+  </p>
+  <form method="post" action="{{ url_for('set_groups_update', set_code=set_code) }}">
+    <div class="table-scroll">
+      <table class="collection-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Land</th>
+            <th>#</th>
+            <th>Artist</th>
+            <th>Released</th>
+            <th>Auto label</th>
+            <th>Override</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for card in cards %}
+            <tr>
+              <td>
+                {{ card.name }}
+                <input type="hidden" name="scryfall_id" value="{{ card.scryfall_id }}">
+              </td>
+              <td>{{ card.land_type }}</td>
+              <td>#{{ card.collector_number }}</td>
+              <td>{{ card.artist or '—' }}</td>
+              <td>{{ card.released_at or '—' }}</td>
+              <td class="mono">{{ card.auto_label }}</td>
+              <td>
+                <input type="text" name="group_key__{{ card.scryfall_id }}"
+                       value="{{ card.group_key or '' }}" placeholder="{{ card.auto_label }}">
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <button type="submit">Save drop-group overrides</button>
+  </form>
+</section>
+{% endblock %}

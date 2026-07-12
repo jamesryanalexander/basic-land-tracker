@@ -328,6 +328,17 @@ input[type="file"] {
   text-align: right;
 }
 
+.drop-section {
+  border-top: 2px solid var(--line);
+}
+
+.drop-section-title {
+  margin: 1rem 1rem 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .treatment-section {
   padding: 1rem;
   border-top: 1px solid var(--line);

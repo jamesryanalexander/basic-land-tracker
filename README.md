@@ -142,6 +142,24 @@ This is useful when:
 - a card matched but the finish was wrong
 - you want to track a few cards manually before importing a full collection
 
+## Secret Lair drop grouping
+
+Secret Lair Drop (`SLD`) and Secret Lair Promo (`SLP`) all share a single Scryfall set code across dozens of unrelated products — Scryfall has no field that identifies which individual drop a card belongs to. Instead of showing every SLD/SLP basic land as one undifferentiated block, the app auto-splits them into per-drop sub-sections using each card's artist and release date (e.g. "Bob Ross · 2020-11-30"), so cards from unrelated drops never get visually mixed together.
+
+If the auto-detected grouping is ever wrong (for example, two unrelated products released the same day by the same artist), click `Manage drop groups` on the SLD or SLP set block to go to:
+
+```text
+/groups/sld
+```
+
+This lists every card in the set with an editable text field:
+
+- Leave a field blank to use the auto-detected label.
+- Type the same text into two or more cards to merge them into one drop-group.
+- Give a mis-clustered card unique text to split it out on its own.
+
+This grouping only applies to `sld`/`slp` today — every other set renders exactly as before.
+
 ## Export Collection
 
 You can export a CSV of the ownership information on either the Collection page or the Import page.
@@ -199,6 +217,7 @@ docker compose up -d --build
 - It does not currently import the ManaBox JSON format with `product_id` / `tcgplayer_sku_id`, because that format does not include enough card identity data by itself.
 - Pricing is intentionally not included yet, but the database can be extended later.
 - Scryfall image URLs are hotlinked rather than downloaded locally.
+- Secret Lair drop-group overrides (see [Secret Lair drop grouping](#secret-lair-drop-grouping)) are stored locally and, like special-case cards, are not overwritten by re-running the Scryfall bulk importer.
 
 ## Possible next improvements
 
